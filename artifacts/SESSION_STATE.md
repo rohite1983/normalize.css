@@ -1,80 +1,129 @@
 # Session state — resume here next time
 
-## Where we are — M1.1 shipped (.NET 10 upgrade)
+## Where we are — M2.0 + M1.6 shipped
 
-- **M0 scaffold + M1 DoIP/UDS/DTC work + M1.1 .NET 10 upgrade**:
-  committed in local scratch repo at `/tmp/bench-mercedes`, shipped
-  as `bench-mercedes-m1.1.bundle` (full) and
-  `bench-mercedes-m1-to-m1.1.bundle` (incremental) in this directory.
-- User successfully pushed M0+M1 commits to
-  `https://github.com/rohite1983/Bench-mercedes` (private) from his
-  Mac earlier this session via `gh auth login` + `git push`.
-- **Plan**: `docs/mercedes-diag-plan.md` on this branch.
+- **Scratch repo**: `/tmp/bench-mercedes` (rebuilt each sandbox session
+  from the latest cumulative bundle — commits are unsigned there, see
+  signing note at the bottom).
+- **Delivery branch on this repo**: `claude/clarify-project-requirements-Qz5IO`.
+  Each increment lands here as a `bench-mercedes-mX.Y-to-mX.Z.bundle`
+  in `/artifacts/`.
+- **User's real repo**: `https://github.com/rohite1983/Bench-mercedes`
+  (private) on his Mac at `/Users/mohammedouchrif/Bench-mercedes`.
+- **Plan file**: `docs/mercedes-diag-plan.md` on this branch.
 - **Hard out-of-scope** (do not drift): anti-theft/VIN-lock write on
   head units; redistribution of Mercedes proprietary files; SCN.
 
-## What M1.1 added
+## Milestone timeline shipped so far
 
-- `Directory.Build.props`: `<TargetFramework>` bumped net8.0 → net10.0,
-  `<LangVersion>` 12 → latest.
-- Dropped `global.json` (was pinning SDK 8.0.100, which forced an
-  older install; user has 10.0.202).
-- Package bumps:
-  - `Microsoft.Extensions.Hosting` 8.0.1 → 10.0.0
-  - `Microsoft.Extensions.Logging.Abstractions` 8.0.1 → 10.0.0
-  - `Serilog.Extensions.Hosting` 8.0.0 → 9.0.0
-  - Test SDK bumps for net10 compat (17.11 → 17.12, xunit 2.9.2 →
-    2.9.3, runner 2.8.2 → 3.0.0, FluentAssertions 6.12.1 → 6.12.2).
-- Avalonia 11.2.1 and CommunityToolkit.Mvvm 8.3.2 untouched — both
-  multi-target net10 fine.
+| Commit  | Label  | What it did                                               |
+|---------|--------|-----------------------------------------------------------|
+| 31a4bc6 | M0     | Avalonia solution scaffold                                |
+| 7d6da3b | M1     | DoIP transport + UDS services + DTC UI                    |
+| 43edd0b | M1.1   | Upgrade to .NET 10                                        |
+| 6577c0b | M1.2   | Fix NuGet build failures on .NET 10                       |
+| 571b5b1 | M1.3   | Satisfy .NET 10 IDE style rules in build                  |
+| 2954c03 | M1.4   | Drop unused MercedesDiag.Transport using                  |
+| 8b5b090 | M1.5   | Fix Avalonia 11.2 XAML (no ColumnSpacing/RowSpacing)      |
+| 1024256 | M2.0   | ISO-TP (ISO 15765-2) channel implementation               |
+| a1d6bca | M1.6   | Expand ECU catalog + custom target address                |
+
+## What M2.0 added
+
+- `src/MercedesDiag.Transport/IsoTp/`:
+  - `IsoTpChannel.cs` — full ISO 15765-2 single/multi-frame send &
+    receive with BlockSize / STmin flow-control, background pump,
+    SemaphoreSlim request gate.
+  - `IsoTpOptions.cs` — padding byte (default `0xCC` for Mercedes),
+    block size, STmin, flow-control timeout, frame length.
+  - `IsoTpPci.cs` — PCI type and flow-status enums + STmin decoder.
+  - `IsoTpException.cs`.
+- `tests/MercedesDiag.Uds.Tests/Fakes/FakeCanAdapter.cs` —
+  in-memory ICanAdapter with separate tx/rx `Channel<CanFrame>`s.
+- `tests/MercedesDiag.Uds.Tests/IsoTpChannelTests.cs` — 6 unit tests
+  covering SF round-trip, FF+CF reassembly, multi-frame send with
+  FC, timeout, sequence mismatch, empty-payload rejection.
+- Expected total after pull: **21 tests passing** (15 existing + 6 new).
+
+## What M1.6 added
+
+- `MercedesEcuCatalog.Common` expanded from 10 entries to **27**:
+  added DDM/PDM/RDM-R/RDM-L, HVAC, SRS, KG, EHPS, HU, COMAND, A20,
+  STH, RSL, SAM-F, SAM-R, IC, PTS, TPM, ISM, EAS, ESP, VGS, TCM-9G,
+  DTR, ME, EZS, CGW.
+- `MainWindowViewModel.cs`: new `UseCustomTargetAddress` bool and
+  `TargetAddressHex` string. When toggle is on, `ConnectAsync`
+  parses the hex field and uses it instead of `SelectedEcu`.
+  Hex parser accepts `0x`-prefix or bare hex, case-insensitive.
+- `MainWindow.axaml`: CheckBox "Custom target address" + TextBox
+  below the ECU ComboBox; TextBox enabled when toggle is on, and
+  the ComboBox is disabled when the toggle is on so the UI makes
+  it obvious which address will be used.
 
 ## Next session — first actions
 
-1. User runs:
-   ```
-   cd ~/path/to/Bench-mercedes
-   git pull /path/to/artifacts/bench-mercedes-m1-to-m1.1.bundle main
-   git push origin main
-   dotnet restore
-   dotnet build
-   dotnet test
-   dotnet run --project src/MercedesDiag.App
-   ```
-   Report any build/test errors — no `dotnet` in sandbox so I can't
-   verify locally.
-2. If clean, user plugs ENET cable into a bench car and tries
-   Connect → Read DTCs. Any runtime failures get diagnosed next
-   session.
-3. Then **M2**: PCAN + ISO-TP for pre-2015 vehicles.
+User on his Mac:
+```
+cd /Users/mohammedouchrif/Bench-mercedes
+git pull ~/normalize.css/artifacts/bench-mercedes-m2.0-to-m1.6.bundle main
+git push origin main
+dotnet restore
+dotnet build
+dotnet test
+dotnet run --project src/MercedesDiag.App
+```
+
+Expected after pull:
+- 27 ECUs in the dropdown (previously 10).
+- A "Custom target address" checkbox + hex textbox below the
+  dropdown. Ticking it lets him type any logical address in hex.
+- 21 tests passing.
+
+## Next milestone — M2.1 (KWP2000 client)
+
+- `src/MercedesDiag.Kwp/KwpClient.cs` — ISO 14230 service mapping
+  for pre-2012 Mercedes over CAN (KWP-on-CAN) — many services are
+  UDS-compatible but `0x1A` ReadEcuIdentification and a handful of
+  others need a KWP-specific path.
+- Unit tests fed from the existing FakeCanAdapter.
+- No UI wiring yet; that lands with M2.3 when the adapter selector
+  is added.
+
+## Then — M2.2 (PCAN backend) and M2.3 (J2534)
+
+- `src/MercedesDiag.Hal/Pcan/PcanAdapter.cs` implementing
+  `ICanAdapter` via P/Invoke to `PCANBasic.dll` (Windows) /
+  `libpcan` (Linux). Platform guards so macOS builds but shows
+  "PCAN driver not available on macOS".
+- `src/MercedesDiag.Hal/J2534/J2534Adapter.cs` — P/Invoke to a
+  vendor J2534 DLL. Windows-only in v1; other platforms compile
+  a stub that throws `PlatformNotSupportedException`.
+- UI: an adapter-selector dropdown (ENET / PCAN / J2534 / C3-C4)
+  with per-adapter settings panels.
 
 ## Open items
 
-- Confirm the sandbox scope has been (or will be) expanded to
-  include `rohite1983/Bench-mercedes`. Until then, keep using the
-  bundle workflow. User opted for "Expand sandbox scope" earlier
-  this session; awaiting the admin change on the Claude Code side.
-- Sanity-check the default vehicle IP (currently 169.254.0.1) against
-  what the user's actual ENET cable gets assigned — may need to
-  switch to DoIP UDP discovery as the primary connect flow.
-- UI language: still English-only. Revisit in M2 or M3.
+- Sandbox scope for `rohite1983/Bench-mercedes` still not granted,
+  so the bundle workflow continues.
+- Vehicle IP default `169.254.0.1` still unverified against the
+  user's actual ENET cable — if it doesn't come up, we'll switch
+  Connect to kick off with DoIP UDP discovery.
+- UI language: English only; revisit multi-language in M3.
+- User hasn't reported back the actual `dotnet test` output after
+  pulling M2.0 — the M1.6 bundle will exercise the same tree, so
+  a single test run after this bundle covers both.
 
-## Known caveats in M1 that may surface
+## Known caveats still unresolved
 
-- DoIP response-pending handling loops forever inside the timeout
-  window — fine for normal ECUs, but a broken ECU could hang the
-  connection. Future: bound the number of pending-loops.
-- No flow control yet for ECUs that send multi-segment responses
-  needing keep-alive — not likely for standard UDS over DoIP but
-  worth checking against a real target.
-- `ReadDtcs` unconditionally enters the extended session; some
-  ECUs reject this. May need to fall back to default session.
-- No security access handshake wired into the UI yet — just APIs
-  on UdsClient. UI flow for seed/key lands in M4.
+- DoIP response-pending handling loops inside the outer timeout
+  without bounding pending-count.
+- `ReadDtcs` unconditionally enters extended session; some ECUs
+  reject. Will add default-session fallback once we hit one.
+- No security-access UI; API exists, UI lands M4.
 
 ## Sandbox signing note
 
 Commits in the scratch repo at `/tmp/bench-mercedes` are unsigned
 because the sandbox signing server rejects writes from that path
-(`missing source`). All three commits (M0, M1, M1.1) follow the
-same pattern. Signatures re-applied when the user pushes from his
-Mac, so this is cosmetic.
+(`missing source`). Every M0..M2.0..M1.6 commit follows the same
+pattern. Signatures re-apply when the user pushes from his Mac.
