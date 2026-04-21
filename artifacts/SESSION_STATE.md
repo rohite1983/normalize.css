@@ -1,6 +1,6 @@
 # Session state — resume here next time
 
-## Where we are — M2.0 + M1.6 shipped
+## Where we are — M2.4 shipped (adapter + protocol selector UI)
 
 - **Scratch repo**: `/tmp/bench-mercedes` (rebuilt each sandbox session
   from the latest cumulative bundle — commits are unsigned there, see
@@ -27,45 +27,58 @@
 | 8b5b090 | M1.5   | Fix Avalonia 11.2 XAML (no ColumnSpacing/RowSpacing)      |
 | 1024256 | M2.0   | ISO-TP (ISO 15765-2) channel implementation               |
 | a1d6bca | M1.6   | Expand ECU catalog + custom target address                |
+| 713d67e | M2.1   | Fix ISO-TP CS4007 (ReadOnlyMemory across awaits)          |
+| 7c0b04f | M2.2   | Drop unused Hal using in IsoTpChannelTests                |
+| 20881c6 | M2.3   | KWP2000 client (ISO 14230) + 11 KWP tests                 |
+| 0495c83 | M2.4   | Adapter + protocol selector UI, transport generalization  |
 
-## What M2.0 added
+## What M2.4 added
 
-- `src/MercedesDiag.Transport/IsoTp/`:
-  - `IsoTpChannel.cs` — full ISO 15765-2 single/multi-frame send &
-    receive with BlockSize / STmin flow-control, background pump,
-    SemaphoreSlim request gate.
-  - `IsoTpOptions.cs` — padding byte (default `0xCC` for Mercedes),
-    block size, STmin, flow-control timeout, frame length.
-  - `IsoTpPci.cs` — PCI type and flow-status enums + STmin decoder.
-  - `IsoTpException.cs`.
-- `tests/MercedesDiag.Uds.Tests/Fakes/FakeCanAdapter.cs` —
-  in-memory ICanAdapter with separate tx/rx `Channel<CanFrame>`s.
-- `tests/MercedesDiag.Uds.Tests/IsoTpChannelTests.cs` — 6 unit tests
-  covering SF round-trip, FF+CF reassembly, multi-frame send with
-  FC, timeout, sequence mismatch, empty-payload rejection.
-- Expected total after pull: **21 tests passing** (15 existing + 6 new).
-
-## What M1.6 added
-
-- `MercedesEcuCatalog.Common` expanded from 10 entries to **27**:
-  added DDM/PDM/RDM-R/RDM-L, HVAC, SRS, KG, EHPS, HU, COMAND, A20,
-  STH, RSL, SAM-F, SAM-R, IC, PTS, TPM, ISM, EAS, ESP, VGS, TCM-9G,
-  DTR, ME, EZS, CGW.
-- `MainWindowViewModel.cs`: new `UseCustomTargetAddress` bool and
-  `TargetAddressHex` string. When toggle is on, `ConnectAsync`
-  parses the hex field and uses it instead of `SelectedEcu`.
-  Hex parser accepts `0x`-prefix or bare hex, case-insensitive.
-- `MainWindow.axaml`: CheckBox "Custom target address" + TextBox
-  below the ECU ComboBox; TextBox enabled when toggle is on, and
-  the ComboBox is disabled when the toggle is on so the UI makes
-  it obvious which address will be used.
+- **`IDiagnosticSession`** (`src/MercedesDiag.Services/IDiagnosticSession.cs`)
+  shared contract for UDS and KWP sessions, plus `DtcEntry(Code, Status, Raw)`
+  record struct that normalises DTCs for the UI.
+- **`KwpDiagnosticSession`** — wraps `KwpClient`, enters
+  `KwpSession.ExtendedDiagnostics` before read/clear, clears group `0xFF00`.
+- **`DiagnosticSession`** (UDS) now implements `IDiagnosticSession` and returns
+  `IReadOnlyList<DtcEntry>` instead of UDS-specific records.
+- **`ConnectionService`** rewritten:
+  - New enums `AdapterTransport { DoipEnet, Pcan, J2534, Sdconnect }` and
+    `DiagnosticProtocol { Uds, Kwp }`.
+  - `ConnectionSettings` is a flat record with nullable per-transport fields:
+    `DoipEndpoint`, `CanBitrateKbps` (500), `CanTxId` (0x7E0), `CanRxId`
+    (0x7E8), `CanExtendedFrames`, `PcanChannel` ("PCAN_USBBUS1"),
+    `J2534DllPath`, `J2534DeviceIndex`, `SdconnectHost`.
+  - `ConnectAsync` dispatches on transport: DoIP → `DoipChannel`;
+    PCAN/J2534 → `IsoTpChannel` over the matching CAN adapter;
+    SDconnect → `NotSupportedException` ("lands in later milestone").
+  - Takes three `ILogger<T>` in the ctor (added `KwpDiagnosticSession`).
+    Generic-host DI resolves it automatically — no `Program.cs` change.
+- **`MainWindowViewModel`**:
+  - `AdapterTransports` and `Protocols` read-only lists for ComboBox binding.
+  - `SelectedTransport` / `SelectedProtocol` observable properties.
+  - Derived flags `IsDoipTransport` / `IsCanTransport` / `IsPcanTransport` /
+    `IsJ2534Transport` / `IsSdconnectTransport` drive panel visibility via
+    `[NotifyPropertyChangedFor]`.
+  - New input properties: `CanBitrateKbps`, `CanTxIdHex`, `CanRxIdHex`,
+    `CanExtendedFrames`, `PcanChannel`, `J2534DllPath`, `J2534DeviceIndex`,
+    `SdconnectHost`.
+  - `TryBuildSettings` helper validates per-transport inputs and returns a
+    human-readable `error` on failure.
+  - `DtcRowViewModel` now takes `DtcEntry` (protocol-agnostic).
+- **`MainWindow.axaml`**:
+  - Sidebar widened to 360px and wrapped in a `ScrollViewer`.
+  - Adapter + Protocol ComboBoxes at top.
+  - Conditional `<StackPanel IsVisible="{Binding IsXxxTransport}">` sub-panels
+    for DoIP (IP+port), CAN (bitrate+TX+RX+extended), PCAN (channel +
+    "hardware backend lands in M2.5"), J2534 (DLL path+device +
+    "Windows-only"), SDconnect (host + "not implemented yet").
 
 ## Next session — first actions
 
 User on his Mac:
 ```
 cd /Users/mohammedouchrif/Bench-mercedes
-git pull ~/normalize.css/artifacts/bench-mercedes-m2.0-to-m1.6.bundle main
+git pull ~/normalize.css/artifacts/bench-mercedes-m2.3-to-m2.4.bundle main
 git push origin main
 dotnet restore
 dotnet build
@@ -73,33 +86,36 @@ dotnet test
 dotnet run --project src/MercedesDiag.App
 ```
 
+(If the Mac is missing the earlier increments, pull them in order first:
+`m1.6-to-m2.1fix`, `m2.1fix-to-m2.2fix`, `m2.2fix-to-m2.3`, then this one.)
+
 Expected after pull:
-- 27 ECUs in the dropdown (previously 10).
-- A "Custom target address" checkbox + hex textbox below the
-  dropdown. Ticking it lets him type any logical address in hex.
-- 21 tests passing.
+- Sidebar now has **Adapter** and **Protocol** dropdowns.
+- Selecting a transport reveals that transport's settings panel:
+  DoIP → IP+port; CAN (PCAN/J2534) → bitrate+TX+RX+extended; PCAN adds
+  channel; J2534 adds DLL path+device; SDconnect shows "not implemented".
+- **32 tests passing** (21 from M2.0/M1.6 + 11 new KWP tests).
+- DoIP round-trip still works exactly as before (default values unchanged).
 
-## Next milestone — M2.1 (KWP2000 client)
+## Next milestone — M2.5 (PCAN-USB P/Invoke backend)
 
-- `src/MercedesDiag.Kwp/KwpClient.cs` — ISO 14230 service mapping
-  for pre-2012 Mercedes over CAN (KWP-on-CAN) — many services are
-  UDS-compatible but `0x1A` ReadEcuIdentification and a handful of
-  others need a KWP-specific path.
-- Unit tests fed from the existing FakeCanAdapter.
-- No UI wiring yet; that lands with M2.3 when the adapter selector
-  is added.
+Goal: real CAN hardware on Windows/Linux. macOS gets a stub that throws
+`PlatformNotSupportedException` — PCAN-USB has no macOS driver.
 
-## Then — M2.2 (PCAN backend) and M2.3 (J2534)
+- `src/MercedesDiag.Hal/Pcan/PcanAdapter.cs` — replace the throwing stub
+  with P/Invoke to `PCANBasic.dll` (Windows) / `libpcanbasic.so` (Linux).
+- Bitrate mapping (Mercedes buses are almost always 500 kbps; diagnostic
+  buses on newer cars sometimes 1 Mbps; interior CAN-B 83 kbps).
+- Extended-frame + listen-only flags.
+- Frame-level tests against a fake channel + manual bench test with a
+  PCAN-USB on Windows.
 
-- `src/MercedesDiag.Hal/Pcan/PcanAdapter.cs` implementing
-  `ICanAdapter` via P/Invoke to `PCANBasic.dll` (Windows) /
-  `libpcan` (Linux). Platform guards so macOS builds but shows
-  "PCAN driver not available on macOS".
-- `src/MercedesDiag.Hal/J2534/J2534Adapter.cs` — P/Invoke to a
-  vendor J2534 DLL. Windows-only in v1; other platforms compile
-  a stub that throws `PlatformNotSupportedException`.
-- UI: an adapter-selector dropdown (ENET / PCAN / J2534 / C3-C4)
-  with per-adapter settings panels.
+## Then — M2.6 (J2534) and M2.7 (SDconnect passthrough)
+
+- `src/MercedesDiag.Hal/J2534/J2534Adapter.cs` — P/Invoke to the vendor
+  DLL selected by `J2534DllPath`. Windows-only in v1.
+- SDconnect is complex enough (proprietary MUX protocol over TCP) that it
+  stays out until a real user need surfaces.
 
 ## Open items
 
@@ -109,9 +125,9 @@ Expected after pull:
   user's actual ENET cable — if it doesn't come up, we'll switch
   Connect to kick off with DoIP UDP discovery.
 - UI language: English only; revisit multi-language in M3.
-- User hasn't reported back the actual `dotnet test` output after
-  pulling M2.0 — the M1.6 bundle will exercise the same tree, so
-  a single test run after this bundle covers both.
+- User will test the new UI **tomorrow at the workshop** with the
+  ENET cable; the bundle covers the UI + protocol plumbing he needs
+  for that test.
 
 ## Known caveats still unresolved
 
@@ -120,10 +136,12 @@ Expected after pull:
 - `ReadDtcs` unconditionally enters extended session; some ECUs
   reject. Will add default-session fallback once we hit one.
 - No security-access UI; API exists, UI lands M4.
+- PCAN/J2534 selection in the UI surfaces panels but the HAL backends
+  still throw "not implemented" on `OpenAsync` — M2.5/M2.6.
 
 ## Sandbox signing note
 
 Commits in the scratch repo at `/tmp/bench-mercedes` are unsigned
 because the sandbox signing server rejects writes from that path
-(`missing source`). Every M0..M2.0..M1.6 commit follows the same
-pattern. Signatures re-apply when the user pushes from his Mac.
+(`missing source`). Every M0..M2.4 commit follows the same pattern.
+Signatures re-apply when the user pushes from his Mac.
