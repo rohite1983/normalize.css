@@ -6,30 +6,49 @@ repository; they're the deliverables of that session's work on a
 separate project and live here only because this was the one repo
 the sandbox could push to.
 
-## `bench-mercedes-m0.bundle`
+## Current state: M1 committed
 
-A git bundle containing the M0 scaffold commit for the **Bench
-Mercedes** project (a personal/workshop Mercedes diagnostic tool).
-To import it into an existing empty repo on your machine:
+- `bench-mercedes-m1.bundle` — **latest, full history (M0 + M1).**
+  Contains two commits: the M0 scaffold and the M1 DoIP+UDS+DTC work.
+  This is the file to use if you haven't imported the project yet.
+- `bench-mercedes-m0-to-m1.bundle` — incremental, M1 commit only.
+  Use this if you already imported M0 and want to fetch just the new
+  commit on top.
+- `bench-mercedes-m1.tar.gz` — plain tarball of the M1 tree, in case
+  the bundle path is awkward.
 
-```bash
-# on your own machine, after `gh repo clone rohite1983/Bench-mercedes`
-# (or `git clone https://github.com/rohite1983/Bench-mercedes.git`)
-cd Bench-mercedes
-git pull /path/to/bench-mercedes-m0.bundle main
-git push -u origin main
-```
-
-If the repo is brand new with no `main` yet:
+### Fresh import (empty Bench-mercedes repo)
 
 ```bash
-git clone /path/to/bench-mercedes-m0.bundle Bench-mercedes
+git clone artifacts/bench-mercedes-m1.bundle Bench-mercedes
 cd Bench-mercedes
 git remote add origin https://github.com/rohite1983/Bench-mercedes.git
 git push -u origin main
 ```
 
-## `bench-mercedes-m0.tar.gz`
+### Already imported M0, adding M1
 
-Same files as a plain tarball, in case the bundle path is awkward.
-Extract it, then `git init` / copy the tree into your repo manually.
+```bash
+cd Bench-mercedes
+git pull /path/to/artifacts/bench-mercedes-m0-to-m1.bundle main
+git push origin main
+```
+
+## Historical
+
+- `bench-mercedes-m0.bundle` / `bench-mercedes-m0.tar.gz` — the
+  original M0 scaffold, kept for reference. Prefer the M1 bundles
+  above.
+
+## After import: verify on your machine
+
+```bash
+dotnet restore
+dotnet build
+dotnet test
+dotnet run --project src/MercedesDiag.App
+```
+
+You should see the Avalonia window open with connection fields,
+an ECU dropdown, and empty DTC grid. If `dotnet build` fails, paste
+the errors into the next session and I'll fix them.
