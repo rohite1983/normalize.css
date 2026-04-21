@@ -6,39 +6,55 @@ repository; they're the deliverables of that session's work on a
 separate project and live here only because this was the one repo
 the sandbox could push to.
 
-## Current state: M1 committed
+## Current state: M1.1 committed (.NET 10 upgrade)
 
-- `bench-mercedes-m1.bundle` — **latest, full history (M0 + M1).**
-  Contains two commits: the M0 scaffold and the M1 DoIP+UDS+DTC work.
-  This is the file to use if you haven't imported the project yet.
-- `bench-mercedes-m0-to-m1.bundle` — incremental, M1 commit only.
-  Use this if you already imported M0 and want to fetch just the new
-  commit on top.
-- `bench-mercedes-m1.tar.gz` — plain tarball of the M1 tree, in case
-  the bundle path is awkward.
+- `bench-mercedes-m1.1.bundle` — **latest, full history (M0 + M1 + M1.1).**
+  Three commits: M0 scaffold, M1 DoIP+UDS+DTC work, M1.1 .NET 10 upgrade.
+  Use this for a fresh import.
+- `bench-mercedes-m1-to-m1.1.bundle` — incremental, M1.1 commit only.
+  Use this if you already pushed M0+M1 to your GitHub repo and just
+  want to add the upgrade commit.
+
+### Already pushed M0+M1 to GitHub (your case right now)
+
+From your local `Bench-mercedes` checkout on your Mac:
+
+```bash
+cd ~/path/to/Bench-mercedes
+git pull /path/to/artifacts/bench-mercedes-m1-to-m1.1.bundle main
+git push origin main
+```
+
+Then rerun the build from the repo root:
+
+```bash
+dotnet restore
+dotnet build
+dotnet test
+dotnet run --project src/MercedesDiag.App
+```
+
+The SDK-version error should be gone — the project now targets
+`net10.0` and drops the `global.json` pin, so your installed
+`10.0.202` SDK will be picked up automatically.
 
 ### Fresh import (empty Bench-mercedes repo)
 
 ```bash
-git clone artifacts/bench-mercedes-m1.bundle Bench-mercedes
+git clone artifacts/bench-mercedes-m1.1.bundle Bench-mercedes
 cd Bench-mercedes
-git remote add origin https://github.com/rohite1983/Bench-mercedes.git
+git remote set-url origin https://github.com/rohite1983/Bench-mercedes.git
 git push -u origin main
-```
-
-### Already imported M0, adding M1
-
-```bash
-cd Bench-mercedes
-git pull /path/to/artifacts/bench-mercedes-m0-to-m1.bundle main
-git push origin main
 ```
 
 ## Historical
 
+- `bench-mercedes-m1.bundle` / `bench-mercedes-m1.tar.gz` — M0+M1
+  snapshot (pre .NET 10 upgrade). Kept for reference.
+- `bench-mercedes-m0-to-m1.bundle` — incremental M1 commit on top
+  of M0. Kept for reference.
 - `bench-mercedes-m0.bundle` / `bench-mercedes-m0.tar.gz` — the
-  original M0 scaffold, kept for reference. Prefer the M1 bundles
-  above.
+  original M0 scaffold. Prefer the M1.1 bundles above.
 
 ## After import: verify on your machine
 
