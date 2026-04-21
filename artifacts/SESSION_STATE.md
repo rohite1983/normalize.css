@@ -1,6 +1,6 @@
 # Session state — resume here next time
 
-## Where we are — M2.4 shipped (adapter + protocol selector UI)
+## Where we are — M2.6 shipped (PCAN P/Invoke backend + UI polish)
 
 - **Scratch repo**: `/tmp/bench-mercedes` (rebuilt each sandbox session
   from the latest cumulative bundle — commits are unsigned there, see
@@ -31,91 +31,97 @@
 | 7c0b04f | M2.2   | Drop unused Hal using in IsoTpChannelTests                |
 | 20881c6 | M2.3   | KWP2000 client (ISO 14230) + 11 KWP tests                 |
 | 0495c83 | M2.4   | Adapter + protocol selector UI, transport generalization  |
+| d290c84 | M2.5   | Adapter auto-probe, ECU bus discovery, named custom, UI polish |
+| 033f39e | M2.6   | Real PCAN-USB P/Invoke backend (Windows + Linux)          |
 
-## What M2.4 added
+## What M2.5 added (UI polish + live ECU discovery)
 
-- **`IDiagnosticSession`** (`src/MercedesDiag.Services/IDiagnosticSession.cs`)
-  shared contract for UDS and KWP sessions, plus `DtcEntry(Code, Status, Raw)`
-  record struct that normalises DTCs for the UI.
-- **`KwpDiagnosticSession`** — wraps `KwpClient`, enters
-  `KwpSession.ExtendedDiagnostics` before read/clear, clears group `0xFF00`.
-- **`DiagnosticSession`** (UDS) now implements `IDiagnosticSession` and returns
-  `IReadOnlyList<DtcEntry>` instead of UDS-specific records.
-- **`ConnectionService`** rewritten:
-  - New enums `AdapterTransport { DoipEnet, Pcan, J2534, Sdconnect }` and
-    `DiagnosticProtocol { Uds, Kwp }`.
-  - `ConnectionSettings` is a flat record with nullable per-transport fields:
-    `DoipEndpoint`, `CanBitrateKbps` (500), `CanTxId` (0x7E0), `CanRxId`
-    (0x7E8), `CanExtendedFrames`, `PcanChannel` ("PCAN_USBBUS1"),
-    `J2534DllPath`, `J2534DeviceIndex`, `SdconnectHost`.
-  - `ConnectAsync` dispatches on transport: DoIP → `DoipChannel`;
-    PCAN/J2534 → `IsoTpChannel` over the matching CAN adapter;
-    SDconnect → `NotSupportedException` ("lands in later milestone").
-  - Takes three `ILogger<T>` in the ctor (added `KwpDiagnosticSession`).
-    Generic-host DI resolves it automatically — no `Program.cs` change.
-- **`MainWindowViewModel`**:
-  - `AdapterTransports` and `Protocols` read-only lists for ComboBox binding.
-  - `SelectedTransport` / `SelectedProtocol` observable properties.
-  - Derived flags `IsDoipTransport` / `IsCanTransport` / `IsPcanTransport` /
-    `IsJ2534Transport` / `IsSdconnectTransport` drive panel visibility via
-    `[NotifyPropertyChangedFor]`.
-  - New input properties: `CanBitrateKbps`, `CanTxIdHex`, `CanRxIdHex`,
-    `CanExtendedFrames`, `PcanChannel`, `J2534DllPath`, `J2534DeviceIndex`,
-    `SdconnectHost`.
-  - `TryBuildSettings` helper validates per-transport inputs and returns a
-    human-readable `error` on failure.
-  - `DtcRowViewModel` now takes `DtcEntry` (protocol-agnostic).
-- **`MainWindow.axaml`**:
-  - Sidebar widened to 360px and wrapped in a `ScrollViewer`.
-  - Adapter + Protocol ComboBoxes at top.
-  - Conditional `<StackPanel IsVisible="{Binding IsXxxTransport}">` sub-panels
-    for DoIP (IP+port), CAN (bitrate+TX+RX+extended), PCAN (channel +
-    "hardware backend lands in M2.5"), J2534 (DLL path+device +
-    "Windows-only"), SDconnect (host + "not implemented yet").
+- **`AdapterProbeService`** — platform-aware detection of DoIP / PCAN /
+  J2534 availability. DoIP is always available (host networking).
+  PCAN checks for `PCANBasic.dll` on Windows (System32) and
+  `libpcanbasic.so` on Linux (common paths), reports unavailable on
+  macOS. J2534 reports available only on Windows (user points the DLL
+  field at a vendor PassThru DLL).
+- **`EcuDiscoveryService`** — on a successful DoIP connect, pings each
+  catalog address with UDS TesterPresent (400 ms per ECU) and replaces
+  the ECU dropdown with responders. A 'Scan bus' button allows manual
+  re-scans. Progress bar shown during scan.
+- **`MercedesEcu.Source`** (enum: Catalog/Discovered/Custom) — discovered
+  entries render with a '•' suffix so the user can see which came from
+  the real car.
+- **Named custom target** — users can now give their custom target a
+  human-readable name (e.g. 'My gateway') alongside the hex address;
+  it flows through `ConnectionSettings.TargetName` and appears in the
+  connected status line and future code paths.
+- **MainWindow.axaml polish** — card-style sidebar with new styles
+  (`.card`, `.section`, `.hint`, `.label`), status dot (green connected
+  / grey disconnected), Re-probe button, inline probe details line,
+  indeterminate progress bar while connecting, tidier per-transport
+  panels (DoIP / CAN / PCAN / J2534 / SDconnect).
+
+## What M2.6 added (PCAN-USB backend)
+
+- **`src/MercedesDiag.Hal/Pcan/PcanBasic.cs`** — PCANBasic P/Invoke
+  declarations: `CAN_Initialize` / `_Uninitialize` / `_Read` / `_Write`
+  with separate Windows (`PCANBasic.dll`) and Linux (`libpcanbasic.so`)
+  entry points; `TPCANMsg` / `TPCANStatus` / `TPCANMessageType` /
+  `TPCANTimestamp` structs; bitrate constants (`B500K`, `B1M`, etc.)
+  and `PcanBaud.FromKbps` mapper; channel map for
+  `PCAN_USBBUS1..8` / `PCIBUS` / `ISABUS`.
+- **`PcanAdapter.cs`** — replaces the 'not implemented' stub with a
+  full `ICanAdapter` over PCAN. Background RX pump runs in a Task,
+  writes into a bounded `Channel<CanFrame>` (DropOldest on overflow);
+  TX goes through `CAN_Write` with 11/29-bit flag set from `CanFrame.Extended`.
+  macOS path throws `PlatformNotSupportedException` up-front (no PEAK driver).
 
 ## Next session — first actions
 
 User on his Mac:
 ```
+cd ~/normalize.css && git pull origin claude/clarify-project-requirements-Qz5IO
 cd /Users/mohammedouchrif/Bench-mercedes
 git pull ~/normalize.css/artifacts/bench-mercedes-m2.3-to-m2.4.bundle main
+git pull ~/normalize.css/artifacts/bench-mercedes-m2.4-to-m2.6.bundle main
 git push origin main
-dotnet restore
-dotnet build
-dotnet test
+dotnet restore && dotnet build && dotnet test
 dotnet run --project src/MercedesDiag.App
 ```
 
-(If the Mac is missing the earlier increments, pull them in order first:
-`m1.6-to-m2.1fix`, `m2.1fix-to-m2.2fix`, `m2.2fix-to-m2.3`, then this one.)
+(If the Mac is behind M2.3, pull the earlier bundles first in order:
+`m1.6-to-m2.1fix`, `m2.1fix-to-m2.2fix`, `m2.2fix-to-m2.3`, then the
+two newest.)
 
 Expected after pull:
-- Sidebar now has **Adapter** and **Protocol** dropdowns.
-- Selecting a transport reveals that transport's settings panel:
-  DoIP → IP+port; CAN (PCAN/J2534) → bitrate+TX+RX+extended; PCAN adds
-  channel; J2534 adds DLL path+device; SDconnect shows "not implemented".
-- **32 tests passing** (21 from M2.0/M1.6 + 11 new KWP tests).
-- DoIP round-trip still works exactly as before (default values unchanged).
+- Sidebar has a cleaner card look with a green/grey status dot in the
+  header.
+- Adapter dropdown shows availability + helpful detail for each transport.
+  A 'Re-probe' button re-checks (useful after plugging in PCAN-USB).
+- Connect button shows an indeterminate progress bar while connecting.
+- After connecting via DoIP, the app auto-scans known ECU addresses
+  against the real vehicle; dropdown shrinks to only responders with
+  a '•' marker. A 'Scan bus' button lets you repeat the scan.
+- 'Custom target' panel now has a name + address side-by-side.
+- PCAN hardware on Windows/Linux: selecting Pcan, entering channel
+  (e.g. `PCAN_USBBUS1`) + bitrate + tester/ECU CAN IDs, then Connect
+  should now actually initialise the driver and send frames.
+- 32 tests still passing (no new tests in M2.5/M2.6 — the new services
+  need integration tests with real hardware; unit coverage lands later).
 
-## Next milestone — M2.5 (PCAN-USB P/Invoke backend)
+## Next milestone — M2.7 (J2534 P/Invoke backend)
 
-Goal: real CAN hardware on Windows/Linux. macOS gets a stub that throws
-`PlatformNotSupportedException` — PCAN-USB has no macOS driver.
+- `src/MercedesDiag.Hal/J2534/J2534Adapter.cs` — real P/Invoke to the
+  vendor DLL specified by `J2534DllPath`. Windows-only in v1.
+- J2534 API: `PassThruOpen`, `PassThruConnect`, `PassThruReadMsgs`,
+  `PassThruWriteMsgs`, `PassThruIoctl`, `PassThruDisconnect`, `PassThruClose`.
+- The existing `J2534Adapter.cs` still throws 'not implemented'; this
+  milestone replaces it analogously to M2.6's PcanAdapter.
 
-- `src/MercedesDiag.Hal/Pcan/PcanAdapter.cs` — replace the throwing stub
-  with P/Invoke to `PCANBasic.dll` (Windows) / `libpcanbasic.so` (Linux).
-- Bitrate mapping (Mercedes buses are almost always 500 kbps; diagnostic
-  buses on newer cars sometimes 1 Mbps; interior CAN-B 83 kbps).
-- Extended-frame + listen-only flags.
-- Frame-level tests against a fake channel + manual bench test with a
-  PCAN-USB on Windows.
+## Then — M3 (live data + coding)
 
-## Then — M2.6 (J2534) and M2.7 (SDconnect passthrough)
-
-- `src/MercedesDiag.Hal/J2534/J2534Adapter.cs` — P/Invoke to the vendor
-  DLL selected by `J2534DllPath`. Windows-only in v1.
-- SDconnect is complex enough (proprietary MUX protocol over TCP) that it
-  stays out until a real user need surfaces.
+- `src/MercedesDiag.Coding/Yaml/UserYamlProvider.cs` — user-supplied
+  YAML coding definitions.
+- Periodic DID polling with graph/gauge.
+- Coding tree UI.
 
 ## Open items
 
@@ -125,9 +131,10 @@ Goal: real CAN hardware on Windows/Linux. macOS gets a stub that throws
   user's actual ENET cable — if it doesn't come up, we'll switch
   Connect to kick off with DoIP UDP discovery.
 - UI language: English only; revisit multi-language in M3.
-- User will test the new UI **tomorrow at the workshop** with the
-  ENET cable; the bundle covers the UI + protocol plumbing he needs
-  for that test.
+- No unit tests for AdapterProbeService / EcuDiscoveryService / the
+  real PcanAdapter yet — they benefit most from hardware integration
+  tests. Fake-driven unit tests can still be added for ProbeService
+  branches on demand.
 
 ## Known caveats still unresolved
 
@@ -136,12 +143,14 @@ Goal: real CAN hardware on Windows/Linux. macOS gets a stub that throws
 - `ReadDtcs` unconditionally enters extended session; some ECUs
   reject. Will add default-session fallback once we hit one.
 - No security-access UI; API exists, UI lands M4.
-- PCAN/J2534 selection in the UI surfaces panels but the HAL backends
-  still throw "not implemented" on `OpenAsync` — M2.5/M2.6.
+- J2534 selection in the UI now flows to a stub that throws on open.
+  Real implementation in M2.7.
+- SDconnect remains unimplemented and will stay so until a real
+  user need surfaces.
 
 ## Sandbox signing note
 
 Commits in the scratch repo at `/tmp/bench-mercedes` are unsigned
 because the sandbox signing server rejects writes from that path
-(`missing source`). Every M0..M2.4 commit follows the same pattern.
+(`missing source`). Every M0..M2.6 commit follows the same pattern.
 Signatures re-apply when the user pushes from his Mac.
