@@ -37,6 +37,7 @@
 | 932e9ba | M2.7   | Auto-detect DoIP vehicle + hide transport details behind Advanced expander |
 | 4bfe0f8 | M2.8   | Real J2534 P/Invoke backend (Windows-only)                |
 | bac8ace | M2.9   | Auto-discover installed J2534 PassThru devices via registry |
+| 4b99028 | M2.9f  | Drop Microsoft.Win32.Registry pkg (NU1510 — framework now provides it) |
 
 ## What M2.7 added (UI simplification + DoIP auto-discovery)
 
