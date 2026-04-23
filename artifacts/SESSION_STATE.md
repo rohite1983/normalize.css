@@ -1,6 +1,6 @@
 # Session state — resume here next time
 
-## Where we are — M2.8 shipped (real J2534 backend + auto DoIP discovery + UI hides transport details)
+## Where we are — M2.9 shipped (J2534 device auto-discovery via registry)
 
 - **Scratch repo**: `/tmp/bench-mercedes` (rebuilt each sandbox session
   from the latest cumulative bundle — commits are unsigned there, see
@@ -36,6 +36,7 @@
 | 2210555 | M2.6f  | Fix CS0246 missing `using MercedesDiag.Hal` for IDoipAdapter |
 | 932e9ba | M2.7   | Auto-detect DoIP vehicle + hide transport details behind Advanced expander |
 | 4bfe0f8 | M2.8   | Real J2534 P/Invoke backend (Windows-only)                |
+| bac8ace | M2.9   | Auto-discover installed J2534 PassThru devices via registry |
 
 ## What M2.7 added (UI simplification + DoIP auto-discovery)
 
@@ -55,6 +56,37 @@
 - **`TransportSummary` computed property** in MainWindowViewModel with
   `[NotifyPropertyChangedFor]` on every transport field so the summary
   auto-refreshes when the user tweaks Advanced.
+
+## What M2.9 added (J2534 device auto-discovery)
+
+- User reported that with Tactrix OpenPort 2.0 installed on the Windows
+  PC, the app still prompted for a DLL path — which is the wrong UX.
+  The J2534-04 spec standardises the registry location for PassThru
+  DLLs, so all compliant vendors (Tactrix, PEAK, DrewTech Mongoose,
+  Mongoose Plus, CarDAQ, etc.) can be enumerated without user input.
+- **`src/MercedesDiag.Hal/J2534/J2534DeviceEnumerator.cs`** — reads
+  `HKLM\SOFTWARE\PassThruSupport.04.04` in both `RegistryView.Registry64`
+  and `RegistryView.Registry32` so a 64-bit host still sees the
+  typically 32-bit-registered vendor DLLs. Returns a list of
+  `J2534Device(Name, Vendor, DllPath)`. Deduplicated by DLL path.
+  Platform-gated: returns empty on non-Windows.
+- **`MercedesDiag.Hal.csproj`** — adds `Microsoft.Win32.Registry`
+  5.0.0 (the ref-only package that exposes RegistryKey on net10.0).
+- **`AdapterProbeService.ProbeJ2534`** — now reports e.g.
+  `2 PassThru device(s) found: Tactrix OpenPort 2.0 J2534, PEAK
+  PCAN-USB Pro FD`, or a clear install-your-driver message when empty.
+- **`MainWindowViewModel`** — `J2534Devices` ObservableCollection,
+  `SelectedJ2534Device` with a partial `OnSelectedJ2534DeviceChanged`
+  that auto-sets `J2534DllPath`. `TryBuildSettings` falls back to
+  the selected device's DLL path if the override field is empty.
+  Re-probe refreshes both the transport probes and the J2534 device
+  list, keeping the previous device selected if still present.
+- **`MainWindow.axaml`** — when J2534 is the current transport, a
+  top-level 'Device' dropdown shows installed PassThru devices.
+  If the registry has no entries, a short hint explains the user
+  can install a vendor driver or set the DLL manually in Advanced.
+  The Advanced DLL path field is relabelled '(override)' and
+  preceded by a hint so users know it's optional.
 
 ## What M2.8 added (J2534 PassThru backend)
 
@@ -82,19 +114,19 @@
 
 ## Next session — first actions
 
-User on his Mac:
+User on his Mac (or Windows PC):
 ```
 cd ~/normalize.css && git pull origin claude/clarify-project-requirements-Qz5IO
-cd /Users/mohammedouchrif/Bench-mercedes
-git pull ~/normalize.css/artifacts/bench-mercedes-m2.6fix-to-m2.8.bundle main
+cd /Users/mohammedouchrif/Bench-mercedes   # (or the clone path on Windows)
+git pull ~/normalize.css/artifacts/bench-mercedes-m2.8-to-m2.9.bundle main
 git push origin main
 dotnet restore && dotnet build && dotnet test
 dotnet run --project src/MercedesDiag.App
 ```
 
-(If the Mac is behind M2.6fix, pull the earlier bundles first in
-order: `m2.3-to-m2.4`, `m2.4-to-m2.6`, `m2.6-to-m2.6fix`, then this
-newest one.)
+(If behind M2.8, pull the previous bundles first in order:
+`m2.3-to-m2.4`, `m2.4-to-m2.6`, `m2.6-to-m2.6fix`,
+`m2.6fix-to-m2.8`, then this newest one.)
 
 Expected after pull:
 - The top of the sidebar is much cleaner: Adapter → Re-probe → single
